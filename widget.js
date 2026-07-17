@@ -569,19 +569,24 @@
     app.append(backdrop);
 
     const easing = "cubic-bezier(.42, 0, .58, 1)";
+    const expandedContentScale = `scale(${previousRect.width / nextRect.width}, ${
+      previousRect.height / nextRect.height
+    })`;
+    const collapsedContentScale = `scale(${nextRect.width / previousRect.width}, ${
+      nextRect.height / previousRect.height
+    })`;
     const nextAnimation = expanded
       ? nextSurface.animate(
           [
-            { opacity: 0, transform: "scale(.995)" },
-            { opacity: 0, transform: "scale(.995)", offset: 0.2 },
-            { opacity: 1, transform: "scale(1)" }
+            { opacity: 0, transform: expandedContentScale },
+            { opacity: 1, transform: "scale(1, 1)" }
           ],
           { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
         )
       : nextSurface.animate(
           [
-            { opacity: 0, transform: "scale(.99)" },
-            { opacity: 0, transform: "scale(.99)", offset: 0.32 },
+            { opacity: 0, transform: "scale(.92)" },
+            { opacity: 0, transform: "scale(.92)", offset: 0.58 },
             { opacity: 1, transform: "scale(1)" }
           ],
           { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
@@ -609,9 +614,9 @@
         )
       : ghost.animate(
           [
-            { opacity: 1 },
-            { opacity: 0, offset: 0.48 },
-            { opacity: 0 }
+            { opacity: 1, transform: "scale(1, 1)" },
+            { opacity: 0, transform: collapsedContentScale, offset: 0.82 },
+            { opacity: 0, transform: collapsedContentScale }
           ],
           { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
         );
