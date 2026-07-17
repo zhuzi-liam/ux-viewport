@@ -33,6 +33,7 @@
   setImportantStyle(host, "height", "max-content");
   setImportantStyle(host, "margin", "0");
   setImportantStyle(host, "padding", "0");
+  setImportantStyle(host, "visibility", "hidden");
   document.documentElement.append(host);
 
   const shadow = host.attachShadow({ mode: "closed" });
@@ -106,6 +107,10 @@
       setExpanded(true);
       return false;
     }
+    if (message?.type === "CLOSE_WIDGET") {
+      closeWidget(false);
+      return false;
+    }
     return false;
   };
 
@@ -123,7 +128,12 @@
   async function initialize() {
     const response = await sendMessage({ type: "GET_INITIAL_STATE" });
     if (!response?.ok) {
+      setImportantStyle(host, "visibility", "visible");
       showError(response?.error?.message || "初始化失败，请重新打开插件。");
+      return;
+    }
+    if (!response.visible) {
+      closeWidget(false);
       return;
     }
 
@@ -131,6 +141,7 @@
     state.position = normalizeStoredPosition(response.session?.position);
     applyStoredPosition();
     render();
+    setImportantStyle(host, "visibility", "visible");
   }
 
   function render() {
@@ -657,7 +668,7 @@
     transition.nextSurface.style.removeProperty("transform-origin");
   }
 
-  function closeWidget() {
+  function closeWidget(notifyBackground = true) {
     if (state.destroyed) return;
     state.destroyed = true;
     clearTimeout(resizeTimer);
@@ -671,7 +682,9 @@
     host.removeEventListener("pointerleave", onSurfacePointerLeave);
     chrome.storage.onChanged.removeListener(onStorageChanged);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
-    void sendMessage({ type: "WIDGET_CLOSED" });
+    if (notifyBackground) {
+      void sendMessage({ type: "WIDGET_CLOSED" });
+    }
     host.remove();
   }
 

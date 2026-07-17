@@ -14,6 +14,7 @@ import {
 
 const HOST_ID = "ux-viewport-extension-host";
 const POSITION_KEY = "uxViewportPosition";
+const VISIBILITY_KEY = "uxViewportVisible";
 const resizeLocks = new Set();
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -47,6 +48,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function initializeInstalledExtension() {
   await ensureSettings();
+  if (!(await getWidgetVisible())) {
+    return;
+  }
   const tabs = await chrome.tabs.query({});
   await Promise.allSettled(
     tabs.filter((tab) => tab.id).map((tab) => reinjectWidget(tab.id))
@@ -55,6 +59,9 @@ async function initializeInstalledExtension() {
 
 async function initializeStartedExtension() {
   await ensureSettings();
+  if (!(await getWidgetVisible())) {
+    return;
+  }
   const tabs = await chrome.tabs.query({});
   await Promise.allSettled(
     tabs.filter((tab) => tab.id).map((tab) => ensureWidgetOnTab(tab.id))
@@ -62,6 +69,9 @@ async function initializeStartedExtension() {
 }
 
 async function ensureWidgetOnTab(tabId) {
+  if (!(await getWidgetVisible())) {
+    return;
+  }
   try {
     await injectOrShowWidget(tabId, false);
   } catch {
@@ -90,6 +100,7 @@ async function openWidgetFromAction(tab) {
   }
 
   await clearActionBadge(tab.id);
+  await setWidgetVisible(true);
 
   try {
     await injectOrShowWidget(tab.id, true);
@@ -132,6 +143,7 @@ async function handleMessage(message, sender) {
       return {
         ok: true,
         settings: await getSettings(),
+        visible: await getWidgetVisible(),
         session: { position: await getGlobalPosition(), collapsed: true }
       };
     case "GET_SETTINGS":
@@ -158,6 +170,8 @@ async function handleMessage(message, sender) {
     case "WIDGET_STATE_UPDATE":
       return updateWidgetSession(message, sender);
     case "WIDGET_CLOSED":
+      await setWidgetVisible(false);
+      await closeWidgetsOnAllTabs(sender.tab?.id);
       return { ok: true };
     default:
       throw new CoreError("UNKNOWN_MESSAGE", "无法识别该操作。");
@@ -174,6 +188,44 @@ async function ensureSettings() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   if (!stored[SETTINGS_KEY]) {
     await chrome.storage.local.set({ [SETTINGS_KEY]: createInitialSettings() });
+  }
+}
+
+async function getWidgetVisible() {
+  const stored = await chrome.storage.local.get(VISIBILITY_KEY);
+  if (typeof stored[VISIBILITY_KEY] === "boolean") {
+    return stored[VISIBILITY_KEY];
+  }
+  await setWidgetVisible(true);
+  return true;
+}
+
+async function setWidgetVisible(visible) {
+  await chrome.storage.local.set({ [VISIBILITY_KEY]: visible });
+}
+
+async function closeWidgetsOnAllTabs(excludedTabId) {
+  const tabs = await chrome.tabs.query({});
+  await Promise.allSettled(
+    tabs
+      .filter((tab) => tab.id && tab.id !== excludedTabId)
+      .map((tab) => closeWidgetOnTab(tab.id))
+  );
+}
+
+async function closeWidgetOnTab(tabId) {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: "CLOSE_WIDGET" });
+  } catch {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: (hostId) => document.getElementById(hostId)?.remove(),
+        args: [HOST_ID]
+      });
+    } catch {
+      // Browser-internal and other restricted pages cannot host the widget.
+    }
   }
 }
 
