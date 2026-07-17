@@ -803,7 +803,7 @@
       }
       .drag-handle { cursor: grab; touch-action: none; }
       .drag-handle:active { cursor: grabbing; }
-      .viewport-summary { padding: 18px 8px 16px; }
+      .viewport-summary { padding: 18px 0 16px; }
       .eyebrow { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
       .viewport-value { display: block; color: var(--ink); font-size: 25px; font-weight: 600; line-height: 1.15; }
       .controls { display: grid; gap: 8px; }
