@@ -806,11 +806,11 @@
       .viewport-summary { padding: 18px 0 16px; }
       .eyebrow { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
       .viewport-value { display: block; color: var(--ink); font-size: 25px; font-weight: 600; line-height: 1.15; }
-      .controls { display: grid; gap: 8px; }
+      .controls { display: grid; gap: 8px; margin-inline: 4px; }
       .split-button {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 42px;
-        min-height: 42px;
+        height: 36px;
         overflow: hidden;
         border-radius: 10px;
         background: var(--ink);
@@ -826,7 +826,7 @@
       .split-main:hover, .split-toggle:hover { background: rgba(255,255,255,.1); }
       .split-main:disabled, .split-toggle:disabled { cursor: wait; opacity: .68; }
       .preset-menu {
-        padding: 5px;
+        padding: 5px 5px 1px;
         border: 1px solid var(--line);
         border-radius: 11px;
         background: var(--surface);
@@ -857,6 +857,7 @@
       .row-actions { display: flex; align-items: center; padding-right: 3px; opacity: 0; pointer-events: none; transition: opacity 100ms ease; }
       .preset-row:hover .row-actions, .preset-row:focus-within .row-actions { opacity: 1; pointer-events: auto; }
       .row-actions .icon-button { width: 27px; height: 27px; }
+      .row-actions [data-action="delete-preset"]:hover { color: var(--danger); background: #fef3f2; }
       .tooltip-button::after {
         content: attr(data-tooltip);
         position: absolute;
@@ -878,6 +879,7 @@
         transition: opacity 100ms ease, transform 100ms ease;
       }
       .tooltip-button:hover::after, .tooltip-button:focus-visible::after { opacity: 1; transform: translateY(0); }
+      .preset-row:first-child .tooltip-button::after { top: calc(100% + 6px); bottom: auto; }
       .custom-entry {
         display: flex;
         align-items: center;
@@ -890,10 +892,11 @@
         background: transparent;
         border: 0;
         border-top: 1px solid var(--line);
+        border-radius: 0 0 7px 7px;
         cursor: pointer;
         text-align: left;
       }
-      .custom-entry:hover { color: var(--ink); }
+      .custom-entry:hover { color: var(--ink); background: var(--soft); }
       .empty-state { display: grid; justify-items: center; gap: 15px; padding: 28px 12px 20px; border-top: 1px solid var(--line); }
       .empty-state p { margin: 0; color: #999; }
       .button {
