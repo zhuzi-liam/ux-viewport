@@ -10,7 +10,7 @@ export const RESIZE_LIMITS = Object.freeze({
 export const INITIAL_PRESETS = Object.freeze([
   Object.freeze({ id: "preset-1728-1117", width: 1728, height: 1117 }),
   Object.freeze({ id: "preset-1440-900", width: 1440, height: 900 }),
-  Object.freeze({ id: "preset-1280-800", width: 1280, height: 800 }),
+  Object.freeze({ id: "preset-1280-720", width: 1280, height: 720 }),
   Object.freeze({ id: "preset-768-900", width: 768, height: 900 })
 ]);
 
@@ -37,18 +37,32 @@ export function normalizeSettings(value) {
 
   const presets = value.presets
     .filter((preset) => preset && typeof preset.id === "string")
-    .map((preset) => ({
-      id: preset.id,
-      width: Number(preset.width),
-      height: Number(preset.height)
-    }))
+    .map((preset) => {
+      const normalized = {
+        id: preset.id,
+        width: Number(preset.width),
+        height: Number(preset.height)
+      };
+      if (
+        normalized.id === "preset-1280-800" &&
+        normalized.width === 1280 &&
+        normalized.height === 800
+      ) {
+        return { id: "preset-1280-720", width: 1280, height: 720 };
+      }
+      return normalized;
+    })
     .filter((preset) => validateDimensions(preset.width, preset.height).valid)
     .filter((preset, index, list) =>
       list.findIndex((candidate) => sameSize(candidate, preset)) === index
     );
 
-  const defaultPresetId = presets.some((preset) => preset.id === value.defaultPresetId)
-    ? value.defaultPresetId
+  const requestedDefaultId =
+    value.defaultPresetId === "preset-1280-800"
+      ? "preset-1280-720"
+      : value.defaultPresetId;
+  const defaultPresetId = presets.some((preset) => preset.id === requestedDefaultId)
+    ? requestedDefaultId
     : presets[0]?.id ?? null;
 
   return { version: SETTINGS_VERSION, presets, defaultPresetId };

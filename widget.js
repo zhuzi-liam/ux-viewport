@@ -2,21 +2,23 @@
   "use strict";
 
   const HOST_ID = "ux-viewport-extension-host";
+  const POSITION_KEY = "uxViewportPosition";
   const EDGE_INSET = 8;
+  const HOVER_COLLAPSE_DELAY = 180;
   if (document.getElementById(HOST_ID)) {
     return;
   }
 
   const ICONS = {
-    grip: `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="3" r="1.1"/><circle cx="11" cy="3" r="1.1"/><circle cx="5" cy="8" r="1.1"/><circle cx="11" cy="8" r="1.1"/><circle cx="5" cy="13" r="1.1"/><circle cx="11" cy="13" r="1.1"/></svg>`,
-    chevronDown: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 6 4.5 4 4.5-4"/></svg>`,
-    chevronUp: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 10 4.5-4 4.5 4"/></svg>`,
-    x: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8"/></svg>`,
-    minus: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9"/></svg>`,
-    star: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m8 2 1.75 3.55 3.92.57-2.84 2.77.67 3.91L8 10.96 4.5 12.8l.67-3.91-2.84-2.77 3.92-.57L8 2Z"/></svg>`,
-    pencil: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10.8 2.7 2.5 2.5-7.45 7.45-3.1.6.6-3.1L10.8 2.7Z"/><path d="m9.6 3.9 2.5 2.5"/></svg>`,
-    trash: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 5h9M6 5V3.5h4V5m1.4 0-.55 8H5.15L4.6 5M6.7 7.2v3.6M9.3 7.2v3.6"/></svg>`,
-    plus: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9"/></svg>`
+    grip: `<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="5" r="1"/><circle cx="13" cy="5" r="1"/><circle cx="7" cy="10" r="1"/><circle cx="13" cy="10" r="1"/><circle cx="7" cy="15" r="1"/><circle cx="13" cy="15" r="1"/></svg>`,
+    chevronDown: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 8 4.5 4 4.5-4"/></svg>`,
+    chevronUp: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 12 4.5-4 4.5 4"/></svg>`,
+    x: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8m0-8-8 8"/></svg>`,
+    minus: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10"/></svg>`,
+    star: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 3.5 2.02 4.1 4.53.66-3.28 3.2.77 4.52L10 13.85l-4.04 2.13.77-4.52-3.28-3.2 4.53-.66L10 3.5Z"/></svg>`,
+    pencil: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.9 4.1 3 3-8.75 8.75-3.75.75.75-3.75L12.9 4.1Z"/><path d="m11.4 5.6 3 3"/></svg>`,
+    trash: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6.5h10m-7.5 0V4.75h5V6.5m1.5 0-.6 9H6.6l-.6-9M8.25 9v4m3.5-4v4"/></svg>`,
+    plus: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11"/></svg>`
   };
 
   const host = document.createElement("div");
@@ -42,7 +44,7 @@
   const state = {
     settings: null,
     viewport: measureViewport(),
-    expanded: true,
+    expanded: false,
     menuOpen: false,
     loading: false,
     formMode: null,
@@ -78,11 +80,19 @@
     }, 70);
   };
   const onStorageChanged = (changes, areaName) => {
-    if (areaName === "local" && changes.uxViewportSettings?.newValue) {
+    if (areaName !== "local") {
+      return;
+    }
+    if (changes.uxViewportSettings?.newValue) {
       state.settings = changes.uxViewportSettings.newValue;
       if (!state.settingsMutationPending) {
         render();
       }
+    }
+    if (Object.hasOwn(changes, POSITION_KEY)) {
+      state.position = normalizeStoredPosition(changes[POSITION_KEY].newValue);
+      applyStoredPosition();
+      clampHost(false);
     }
   };
   const onRuntimeMessage = (message, _sender, sendResponse) => {
@@ -115,7 +125,6 @@
 
     state.settings = response.settings;
     state.position = normalizeStoredPosition(response.session?.position);
-    state.expanded = !(response.session?.collapsed ?? false);
     applyStoredPosition();
     render();
   }
@@ -134,9 +143,6 @@
           ${ICONS.grip}
         </button>
         <span class="capsule-size numeric" data-viewport-size>${formatViewport()}</span>
-        <button class="icon-button" type="button" data-action="expand" aria-label="展开 UX Viewport">
-          ${ICONS.chevronDown}
-        </button>
         <button class="icon-button" type="button" data-action="close" aria-label="关闭 UX Viewport">
           ${ICONS.x}
         </button>
@@ -275,12 +281,30 @@
   }
 
   function bindRenderedEvents() {
+    const surface = app.firstElementChild;
+    surface?.addEventListener("pointerenter", onSurfacePointerEnter);
+    surface?.addEventListener("pointerleave", onSurfacePointerLeave);
     app.querySelectorAll("[data-drag-handle]").forEach(bindDragHandle);
     app.querySelectorAll("[data-action]").forEach((element) => {
       element.addEventListener("click", onActionClick);
     });
     const form = app.querySelector("[data-size-form]");
     form?.addEventListener("submit", onFormSubmit);
+  }
+
+  function onSurfacePointerEnter() {
+    clearTimeout(state.collapseTimer);
+    if (!state.expanded) {
+      setExpanded(true);
+    }
+  }
+
+  function onSurfacePointerLeave() {
+    clearTimeout(state.collapseTimer);
+    if (!state.expanded || state.formMode || state.loading || host.dataset.dragging === "true") {
+      return;
+    }
+    state.collapseTimer = setTimeout(() => setExpanded(false), HOVER_COLLAPSE_DELAY);
   }
 
   function onActionClick(event) {
@@ -290,9 +314,6 @@
     const preset = Number.isInteger(index) ? state.settings?.presets[index] : null;
 
     switch (action) {
-      case "expand":
-        setExpanded(true);
-        break;
       case "collapse":
         setExpanded(false);
         break;
@@ -490,7 +511,6 @@
       state.notice = null;
     }
     render();
-    void saveWidgetState();
   }
 
   function closeWidget() {
@@ -628,7 +648,6 @@
   async function saveWidgetState() {
     await sendMessage({
       type: "WIDGET_STATE_UPDATE",
-      collapsed: !state.expanded,
       position: state.position
     });
   }
@@ -744,7 +763,7 @@
         height: 16px;
         fill: none;
         stroke: currentColor;
-        stroke-width: 1.35;
+        stroke-width: 1.55;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
@@ -805,10 +824,10 @@
       }
       .drag-handle { cursor: grab; touch-action: none; }
       .drag-handle:active { cursor: grabbing; }
-      .viewport-summary { padding: 18px 0 16px; }
+      .viewport-summary { padding: 18px 9px 16px; }
       .eyebrow { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
       .viewport-value { display: block; color: var(--ink); font-size: 25px; font-weight: 600; line-height: 1.15; }
-      .controls { display: grid; gap: 8px; margin: 0 4px 4px; }
+      .controls { position: relative; display: grid; margin: 0 9px 9px; }
       .split-button {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 42px;
@@ -828,13 +847,18 @@
       .split-main:hover, .split-toggle:hover { background: rgba(255,255,255,.1); }
       .split-main:disabled, .split-toggle:disabled { cursor: wait; opacity: .68; }
       .preset-menu {
-        padding: 5px 5px 1px;
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        left: 0;
+        z-index: 4;
+        padding: 6px;
         border: 1px solid var(--line);
         border-radius: 11px;
         background: var(--surface);
         box-shadow: 0 8px 22px rgba(0,0,0,.08);
       }
-      .preset-list { max-height: min(252px, calc(100vh - 310px)); overflow-y: auto; overscroll-behavior: contain; }
+      .preset-list { max-height: min(252px, calc(100vh - 310px)); padding-bottom: 6px; overflow-y: auto; overscroll-behavior: contain; border-bottom: 1px solid var(--line); }
       .preset-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -888,13 +912,12 @@
         gap: 7px;
         width: 100%;
         height: 38px;
-        margin-top: 4px;
+        margin-top: 6px;
         padding: 0 9px;
         color: var(--text);
         background: transparent;
         border: 0;
-        border-top: 1px solid var(--line);
-        border-radius: 0 0 7px 7px;
+        border-radius: 7px;
         cursor: pointer;
         text-align: left;
       }

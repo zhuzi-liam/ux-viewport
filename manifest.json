@@ -2,11 +2,27 @@
   "manifest_version": 3,
   "name": "UX Viewport",
   "description": "Resize the active browser window to an exact webpage viewport for UX review.",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "permissions": [
     "activeTab",
     "scripting",
     "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "widget.js"
+      ],
+      "run_at": "document_idle"
+    }
   ],
   "background": {
     "service_worker": "background.js",

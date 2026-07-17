@@ -18,6 +18,27 @@ test("creates the four initial presets with 1440x900 as default", () => {
   const settings = createInitialSettings();
   assert.equal(settings.presets.length, 4);
   assert.equal(settings.defaultPresetId, "preset-1440-900");
+  assert.deepEqual(settings.presets[2], {
+    id: "preset-1280-720",
+    width: 1280,
+    height: 720
+  });
+});
+
+test("migrates the original 1280x800 preset without changing custom presets", () => {
+  const settings = normalizeSettings({
+    version: 1,
+    presets: [
+      { id: "custom", width: 1024, height: 768 },
+      { id: "preset-1280-800", width: 1280, height: 800 }
+    ],
+    defaultPresetId: "preset-1280-800"
+  });
+  assert.deepEqual(settings.presets, [
+    { id: "custom", width: 1024, height: 768 },
+    { id: "preset-1280-720", width: 1280, height: 720 }
+  ]);
+  assert.equal(settings.defaultPresetId, "preset-1280-720");
 });
 
 test("keeps an intentionally empty preset list", () => {

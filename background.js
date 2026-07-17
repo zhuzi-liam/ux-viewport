@@ -13,7 +13,7 @@ import {
 } from "./core.js";
 
 const HOST_ID = "ux-viewport-extension-host";
-const SESSION_PREFIX = "uxViewportTab:";
+const POSITION_KEY = "uxViewportPosition";
 const resizeLocks = new Set();
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -26,17 +26,6 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.action.onClicked.addListener((tab) => {
   void openWidgetFromAction(tab);
-});
-
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status !== "complete") {
-    return;
-  }
-  void restoreWidgetAfterNavigation(tabId, tab);
-});
-
-chrome.tabs.onRemoved.addListener((tabId) => {
-  void removeTabSession(tabId);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -55,39 +44,12 @@ async function openWidgetFromAction(tab) {
   }
 
   await clearActionBadge(tab.id);
-  const existingSession = await getTabSession(tab.id);
-  await setTabSession(tab.id, {
-    enabled: true,
-    origin: getUrlOrigin(tab.url),
-    position: existingSession?.position ?? null,
-    collapsed: false
-  });
 
   try {
     await injectOrShowWidget(tab.id, true);
   } catch (error) {
-    await removeTabSession(tab.id);
     await showUnsupportedBadge(tab.id);
     console.warn("UX Viewport could not be injected:", error);
-  }
-}
-
-async function restoreWidgetAfterNavigation(tabId, tab) {
-  const session = await getTabSession(tabId);
-  if (!session?.enabled) {
-    return;
-  }
-
-  const nextOrigin = getUrlOrigin(tab.url);
-  if (session.origin && nextOrigin && session.origin !== nextOrigin) {
-    await removeTabSession(tabId);
-    return;
-  }
-
-  try {
-    await injectOrShowWidget(tabId, false);
-  } catch {
-    await removeTabSession(tabId);
   }
 }
 
@@ -109,6 +71,9 @@ async function injectOrShowWidget(tabId, expand) {
     target: { tabId },
     files: ["widget.js"]
   });
+  if (expand) {
+    await chrome.tabs.sendMessage(tabId, { type: "SHOW_WIDGET" });
+  }
 }
 
 async function handleMessage(message, sender) {
@@ -121,7 +86,7 @@ async function handleMessage(message, sender) {
       return {
         ok: true,
         settings: await getSettings(),
-        session: sender.tab?.id ? await getTabSession(sender.tab.id) : null
+        session: { position: await getGlobalPosition(), collapsed: true }
       };
     case "GET_SETTINGS":
       return { ok: true, settings: await getSettings() };
@@ -147,9 +112,6 @@ async function handleMessage(message, sender) {
     case "WIDGET_STATE_UPDATE":
       return updateWidgetSession(message, sender);
     case "WIDGET_CLOSED":
-      if (sender.tab?.id) {
-        await removeTabSession(sender.tab.id);
-      }
       return { ok: true };
     default:
       throw new CoreError("UNKNOWN_MESSAGE", "无法识别该操作。");
@@ -185,16 +147,10 @@ async function getSettings() {
 }
 
 async function updateWidgetSession(message, sender) {
-  const tabId = sender.tab?.id;
-  if (!tabId) {
+  if (!sender.tab?.id) {
     throw new CoreError("TAB_UNAVAILABLE", "无法获取当前标签页。");
   }
 
-  const current = (await getTabSession(tabId)) ?? { enabled: true };
-  const next = { ...current, enabled: true };
-  if (typeof message.collapsed === "boolean") {
-    next.collapsed = message.collapsed;
-  }
   if (
     message.position === null ||
     (message.position &&
@@ -204,9 +160,8 @@ async function updateWidgetSession(message, sender) {
       Number.isFinite(message.position.x) &&
       Number.isFinite(message.position.y))
   ) {
-    next.position = message.position;
+    await chrome.storage.local.set({ [POSITION_KEY]: message.position });
   }
-  await setTabSession(tabId, next);
   return { ok: true };
 }
 
@@ -320,36 +275,13 @@ function updateWindowAndWait(windowId, updateInfo, timeoutMs) {
   });
 }
 
-async function getTabSession(tabId) {
-  const key = sessionKey(tabId);
-  const value = await chrome.storage.session.get(key);
-  return value[key] ?? null;
-}
-
-async function setTabSession(tabId, session) {
-  await chrome.storage.session.set({ [sessionKey(tabId)]: session });
-}
-
-async function removeTabSession(tabId) {
-  await chrome.storage.session.remove(sessionKey(tabId));
-}
-
-function sessionKey(tabId) {
-  return `${SESSION_PREFIX}${tabId}`;
+async function getGlobalPosition() {
+  const stored = await chrome.storage.local.get(POSITION_KEY);
+  return stored[POSITION_KEY] ?? null;
 }
 
 function isSupportedUrl(url) {
   return typeof url === "string" && /^(https?:|file:)/.test(url);
-}
-
-function getUrlOrigin(url) {
-  if (!url) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "file:" ? "file://" : parsed.origin;
-  } catch {
-    return null;
-  }
 }
 
 async function showUnsupportedBadge(tabId) {
