@@ -14,7 +14,6 @@
     chevronDown: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 8 4.5 4 4.5-4"/></svg>`,
     chevronUp: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5.5 12 4.5-4 4.5 4"/></svg>`,
     x: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m6 6 8 8m0-8-8 8"/></svg>`,
-    minus: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 10h10"/></svg>`,
     star: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 3.5 2.02 4.1 4.53.66-3.28 3.2.77 4.52L10 13.85l-4.04 2.13.77-4.52-3.28-3.2 4.53-.66L10 3.5Z"/></svg>`,
     pencil: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m12.9 4.1 3 3-8.75 8.75-3.75.75.75-3.75L12.9 4.1Z"/><path d="m11.4 5.6 3 3"/></svg>`,
     trash: `<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6.5h10m-7.5 0V4.75h5V6.5m1.5 0-.6 9H6.6l-.6-9M8.25 9v4m3.5-4v4"/></svg>`,
@@ -23,6 +22,7 @@
 
   const host = document.createElement("div");
   host.id = HOST_ID;
+  host.dataset.edge = "right";
   setImportantStyle(host, "all", "initial");
   setImportantStyle(host, "position", "fixed");
   setImportantStyle(host, "top", "16px");
@@ -55,7 +55,8 @@
     position: null,
     settingsMutationPending: false,
     destroyed: false,
-    collapseTimer: null
+    collapseTimer: null,
+    surfaceMotion: null
   };
 
   let resizeTimer = null;
@@ -138,7 +139,7 @@
 
   function renderCapsule() {
     return `
-      <div class="capsule" role="group" aria-label="UX Viewport">
+      <div class="capsule ${state.surfaceMotion === "collapse" ? "is-collapsing" : ""}" role="group" aria-label="UX Viewport">
         <button class="icon-button drag-handle" type="button" data-drag-handle aria-label="拖拽移动">
           ${ICONS.grip}
         </button>
@@ -151,16 +152,13 @@
 
   function renderPanel() {
     return `
-      <section class="panel" aria-label="UX Viewport 尺寸控制">
+      <section class="panel ${state.surfaceMotion === "expand" ? "is-expanding" : ""}" aria-label="UX Viewport 尺寸控制">
         <header class="panel-header">
           <button class="icon-button drag-handle" type="button" data-drag-handle aria-label="拖拽移动">
             ${ICONS.grip}
           </button>
           <span class="brand">UX Viewport</span>
           <span class="header-spacer"></span>
-          <button class="icon-button" type="button" data-action="collapse" aria-label="收起 UX Viewport">
-            ${ICONS.minus}
-          </button>
           <button class="icon-button" type="button" data-action="close" aria-label="关闭 UX Viewport">
             ${ICONS.x}
           </button>
@@ -314,9 +312,6 @@
     const preset = Number.isInteger(index) ? state.settings?.presets[index] : null;
 
     switch (action) {
-      case "collapse":
-        setExpanded(false);
-        break;
       case "close":
         closeWidget();
         break;
@@ -503,7 +498,11 @@
 
   function setExpanded(expanded) {
     clearTimeout(state.collapseTimer);
+    if (state.expanded === expanded) {
+      return;
+    }
     state.expanded = expanded;
+    state.surfaceMotion = expanded ? "expand" : "collapse";
     if (!expanded) {
       state.menuOpen = false;
       state.formMode = null;
@@ -511,6 +510,7 @@
       state.notice = null;
     }
     render();
+    state.surfaceMotion = null;
   }
 
   function closeWidget() {
@@ -581,12 +581,14 @@
   }
 
   function applyFreePosition(position) {
+    host.dataset.edge = "free";
     setImportantStyle(host, "left", `${Math.round(position.x)}px`);
     setImportantStyle(host, "right", "auto");
     setImportantStyle(host, "top", `${Math.round(position.y)}px`);
   }
 
   function applyEdgePosition(position) {
+    host.dataset.edge = position.edge;
     if (position.edge === "left") {
       setImportantStyle(host, "left", `${EDGE_INSET}px`);
       setImportantStyle(host, "right", "auto");
@@ -781,13 +783,22 @@
         padding: 5px 6px;
         border-radius: 12px;
       }
+      .capsule.is-collapsing {
+        transform-origin: top right;
+        animation: uxv-collapse 150ms cubic-bezier(.2, .8, .2, 1) both;
+      }
       .capsule-size {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-start;
         min-width: 92px;
-        padding: 0 7px;
+        height: 28px;
+        padding: 1px 7px 0;
         color: var(--ink);
         font-size: 12px;
         font-weight: 600;
-        text-align: center;
+        line-height: 1;
+        text-align: left;
       }
       .panel {
         width: min(320px, calc(100vw - 16px));
@@ -795,6 +806,20 @@
         padding: 10px;
         border-radius: 14px;
         overflow: visible;
+      }
+      .panel.is-expanding {
+        transform-origin: top right;
+        animation: uxv-expand 150ms cubic-bezier(.2, .8, .2, 1) both;
+      }
+      :host([data-edge="left"]) .panel.is-expanding,
+      :host([data-edge="left"]) .capsule.is-collapsing { transform-origin: top left; }
+      @keyframes uxv-expand {
+        from { opacity: 0; transform: translateY(-3px) scale(.96); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+      @keyframes uxv-collapse {
+        from { opacity: 0; transform: translateY(2px) scale(1.04); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
       }
       .panel-header {
         display: flex;
@@ -971,6 +996,7 @@
       .loading-block span:last-child { width: 65%; }
       @media (prefers-reduced-motion: reduce) {
         .row-actions, .tooltip-button::after { transition: none; }
+        .panel.is-expanding, .capsule.is-collapsing { animation: none; }
       }
     `;
   }

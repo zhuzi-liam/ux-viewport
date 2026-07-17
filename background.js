@@ -17,15 +17,25 @@ const POSITION_KEY = "uxViewportPosition";
 const resizeLocks = new Set();
 
 chrome.runtime.onInstalled.addListener(() => {
-  void ensureSettings();
+  void initializeInstalledExtension();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  void ensureSettings();
+  void initializeStartedExtension();
 });
 
 chrome.action.onClicked.addListener((tab) => {
   void openWidgetFromAction(tab);
+});
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  void ensureWidgetOnTab(tabId);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "complete") {
+    void ensureWidgetOnTab(tabId);
+  }
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -34,6 +44,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .catch((error) => sendResponse(errorResponse(error)));
   return true;
 });
+
+async function initializeInstalledExtension() {
+  await ensureSettings();
+  const tabs = await chrome.tabs.query({});
+  await Promise.allSettled(
+    tabs.filter((tab) => tab.id).map((tab) => reinjectWidget(tab.id))
+  );
+}
+
+async function initializeStartedExtension() {
+  await ensureSettings();
+  const tabs = await chrome.tabs.query({});
+  await Promise.allSettled(
+    tabs.filter((tab) => tab.id).map((tab) => ensureWidgetOnTab(tab.id))
+  );
+}
+
+async function ensureWidgetOnTab(tabId) {
+  try {
+    await injectOrShowWidget(tabId, false);
+  } catch {
+    // Browser-internal and other restricted pages cannot host content scripts.
+  }
+}
+
+async function reinjectWidget(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (hostId) => document.getElementById(hostId)?.remove(),
+    args: [HOST_ID]
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["widget.js"]
+  });
+}
 
 async function openWidgetFromAction(tab) {
   if (!tab.id || !isSupportedUrl(tab.url)) {
