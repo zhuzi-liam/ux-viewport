@@ -164,9 +164,11 @@
           <strong class="viewport-value numeric" data-viewport-size>${formatViewport()}</strong>
         </div>
         ${renderPanelBody()}
-        <div class="notice ${state.notice?.kind === "error" ? "is-error" : ""}" role="status" aria-live="polite">
-          ${escapeHtml(state.notice?.message ?? "")}
-        </div>
+        ${
+          state.notice
+            ? `<div class="notice ${state.notice.kind === "error" ? "is-error" : ""}" role="status" aria-live="polite">${escapeHtml(state.notice.message)}</div>`
+            : ""
+        }
       </section>`;
   }
 
@@ -806,7 +808,7 @@
       .viewport-summary { padding: 18px 0 16px; }
       .eyebrow { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
       .viewport-value { display: block; color: var(--ink); font-size: 25px; font-weight: 600; line-height: 1.15; }
-      .controls { display: grid; gap: 8px; margin-inline: 4px; }
+      .controls { display: grid; gap: 8px; margin: 0 4px 4px; }
       .split-button {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 42px;
