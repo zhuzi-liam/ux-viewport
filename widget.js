@@ -112,6 +112,8 @@
   window.addEventListener("pointerdown", onWindowPointerDown, true);
   window.addEventListener("keydown", onWindowKeyDown, true);
   window.addEventListener("resize", onWindowResize, { passive: true });
+  host.addEventListener("pointerenter", onSurfacePointerEnter);
+  host.addEventListener("pointerleave", onSurfacePointerLeave);
   chrome.storage.onChanged.addListener(onStorageChanged);
   chrome.runtime.onMessage.addListener(onRuntimeMessage);
 
@@ -281,9 +283,6 @@
   }
 
   function bindRenderedEvents() {
-    const surface = app.firstElementChild;
-    surface?.addEventListener("pointerenter", onSurfacePointerEnter);
-    surface?.addEventListener("pointerleave", onSurfacePointerLeave);
     app.querySelectorAll("[data-drag-handle]").forEach(bindDragHandle);
     app.querySelectorAll("[data-action]").forEach((element) => {
       element.addEventListener("click", onActionClick);
@@ -301,7 +300,13 @@
 
   function onSurfacePointerLeave() {
     clearTimeout(state.collapseTimer);
-    if (!state.expanded || state.formMode || state.loading || host.dataset.dragging === "true") {
+    if (
+      !state.expanded ||
+      state.menuOpen ||
+      state.formMode ||
+      state.loading ||
+      host.dataset.dragging === "true"
+    ) {
       return;
     }
     state.collapseTimer = setTimeout(() => setExpanded(false), HOVER_COLLAPSE_DELAY);
@@ -319,6 +324,9 @@
         break;
       case "toggle-menu":
         state.menuOpen = !state.menuOpen;
+        if (state.menuOpen) {
+          clearTimeout(state.collapseTimer);
+        }
         state.notice = null;
         render();
         break;
@@ -547,7 +555,7 @@
     app.append(ghost);
 
     const backdrop = (expanded ? nextSurface : ghost).cloneNode(false);
-    backdrop.classList.remove("surface-ghost");
+    backdrop.classList.remove("surface-ghost", "surface-transition-target");
     backdrop.classList.add("surface-backdrop");
     backdrop.setAttribute("aria-hidden", "true");
     backdrop.style.width = `${expanded ? nextRect.width : previousRect.width}px`;
@@ -573,7 +581,7 @@
       : nextSurface.animate(
           [
             { opacity: 0, transform: "scale(.99)" },
-            { opacity: 0, transform: "scale(.99)", offset: 0.42 },
+            { opacity: 0, transform: "scale(.99)", offset: 0.32 },
             { opacity: 1, transform: "scale(1)" }
           ],
           { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
@@ -602,7 +610,7 @@
       : ghost.animate(
           [
             { opacity: 1 },
-            { opacity: 0, offset: 0.35 },
+            { opacity: 0, offset: 0.48 },
             { opacity: 0 }
           ],
           { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
@@ -654,6 +662,8 @@
     window.removeEventListener("pointerdown", onWindowPointerDown, true);
     window.removeEventListener("keydown", onWindowKeyDown, true);
     window.removeEventListener("resize", onWindowResize);
+    host.removeEventListener("pointerenter", onSurfacePointerEnter);
+    host.removeEventListener("pointerleave", onSurfacePointerLeave);
     chrome.storage.onChanged.removeListener(onStorageChanged);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
     void sendMessage({ type: "WIDGET_CLOSED" });
@@ -939,6 +949,12 @@
       .surface-transition-target {
         position: relative;
         z-index: 2;
+      }
+      .surface-transition-target,
+      .surface-ghost {
+        background: transparent;
+        border-color: transparent;
+        box-shadow: none;
       }
       .surface-backdrop,
       .surface-ghost {
