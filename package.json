@@ -1,0 +1,10 @@
+{
+  "name": "ux-viewport",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "package": "bash scripts/package-extension.sh",
+    "test": "node --test"
+  }
+}

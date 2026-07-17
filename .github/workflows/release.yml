@@ -1,0 +1,57 @@
+name: Release extension
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify and test
+        run: |
+          npm test
+          node --check background.js
+          node --check core.js
+          node --check widget.js
+          bash -n scripts/package-extension.sh
+          bash -n scripts/publish-web-store.sh
+          MANIFEST_VERSION="$(node -p "require('./manifest.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          test "$MANIFEST_VERSION" = "$TAG_VERSION"
+
+      - name: Build release zip
+        run: npm run package
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/ux-viewport.zip --generate-notes
+
+      - name: Authenticate to Chrome Web Store API
+        if: ${{ vars.CWS_PUBLISH_ENABLED == 'true' }}
+        id: google-auth
+        uses: google-github-actions/auth@v3
+        with:
+          create_credentials_file: false
+          token_format: access_token
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+
+      - name: Upload and submit Chrome Web Store update
+        if: ${{ vars.CWS_PUBLISH_ENABLED == 'true' }}
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+          CWS_ZIP_PATH: dist/ux-viewport.zip
+        run: bash scripts/publish-web-store.sh
