@@ -5,6 +5,7 @@
   const POSITION_KEY = "uxViewportPosition";
   const EDGE_INSET = 8;
   const HOVER_COLLAPSE_DELAY = 180;
+  const SURFACE_TRANSITION_MS = 300;
   if (document.getElementById(HOST_ID)) {
     return;
   }
@@ -55,12 +56,12 @@
     position: null,
     settingsMutationPending: false,
     destroyed: false,
-    collapseTimer: null,
-    surfaceMotion: null
+    collapseTimer: null
   };
 
   let resizeTimer = null;
   let positionSaveTimer = null;
+  let surfaceTransition = null;
 
   const onWindowPointerDown = (event) => {
     if (state.expanded && !host.contains(event.target)) {
@@ -132,6 +133,7 @@
 
   function render() {
     if (state.destroyed) return;
+    cancelSurfaceTransition();
     app.innerHTML = state.expanded ? renderPanel() : renderCapsule();
     bindRenderedEvents();
     requestAnimationFrame(() => clampHost(false));
@@ -139,7 +141,7 @@
 
   function renderCapsule() {
     return `
-      <div class="capsule ${state.surfaceMotion === "collapse" ? "is-collapsing" : ""}" role="group" aria-label="UX Viewport">
+      <div class="capsule" role="group" aria-label="UX Viewport">
         <button class="icon-button drag-handle" type="button" data-drag-handle aria-label="拖拽移动">
           ${ICONS.grip}
         </button>
@@ -152,7 +154,7 @@
 
   function renderPanel() {
     return `
-      <section class="panel ${state.surfaceMotion === "expand" ? "is-expanding" : ""}" aria-label="UX Viewport 尺寸控制">
+      <section class="panel" aria-label="UX Viewport 尺寸控制">
         <header class="panel-header">
           <button class="icon-button drag-handle" type="button" data-drag-handle aria-label="拖拽移动">
             ${ICONS.grip}
@@ -501,8 +503,10 @@
     if (state.expanded === expanded) {
       return;
     }
+    const previousSurface = app.firstElementChild;
+    const previousRect = previousSurface?.getBoundingClientRect();
+    const transitionGhost = previousSurface?.cloneNode(true) ?? null;
     state.expanded = expanded;
-    state.surfaceMotion = expanded ? "expand" : "collapse";
     if (!expanded) {
       state.menuOpen = false;
       state.formMode = null;
@@ -510,7 +514,134 @@
       state.notice = null;
     }
     render();
-    state.surfaceMotion = null;
+    playSurfaceTransition(transitionGhost, previousRect, expanded);
+  }
+
+  function playSurfaceTransition(ghost, previousRect, expanded) {
+    const nextSurface = app.firstElementChild;
+    if (
+      !ghost ||
+      !previousRect ||
+      !nextSurface ||
+      typeof nextSurface.animate !== "function" ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
+    const origin = host.dataset.edge === "left" ? "top left" : "top right";
+    const nextRect = nextSurface.getBoundingClientRect();
+    const edgeIsLeft = host.dataset.edge === "left";
+    ghost.classList.add("surface-ghost");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.style.width = `${previousRect.width}px`;
+    ghost.style.height = `${previousRect.height}px`;
+    ghost.style.transformOrigin = origin;
+    if (host.dataset.edge === "left") {
+      ghost.style.left = "0";
+    } else {
+      ghost.style.right = "0";
+    }
+    nextSurface.style.transformOrigin = origin;
+    nextSurface.classList.add("surface-transition-target");
+    app.append(ghost);
+
+    const backdrop = (expanded ? nextSurface : ghost).cloneNode(false);
+    backdrop.classList.remove("surface-ghost");
+    backdrop.classList.add("surface-backdrop");
+    backdrop.setAttribute("aria-hidden", "true");
+    backdrop.style.width = `${expanded ? nextRect.width : previousRect.width}px`;
+    backdrop.style.height = `${expanded ? nextRect.height : previousRect.height}px`;
+    backdrop.style.transformOrigin = origin;
+    if (edgeIsLeft) {
+      backdrop.style.left = "0";
+    } else {
+      backdrop.style.right = "0";
+    }
+    app.append(backdrop);
+
+    const easing = "cubic-bezier(.42, 0, .58, 1)";
+    const nextAnimation = expanded
+      ? nextSurface.animate(
+          [
+            { opacity: 0, transform: "scale(.995)" },
+            { opacity: 0, transform: "scale(.995)", offset: 0.2 },
+            { opacity: 1, transform: "scale(1)" }
+          ],
+          { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
+        )
+      : nextSurface.animate(
+          [
+            { opacity: 0, transform: "scale(.99)" },
+            { opacity: 0, transform: "scale(.99)", offset: 0.42 },
+            { opacity: 1, transform: "scale(1)" }
+          ],
+          { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
+        );
+    const backdropAnimation = backdrop.animate(
+      expanded
+        ? [
+            { width: `${previousRect.width}px`, height: `${previousRect.height}px`, borderRadius: "12px" },
+            { width: `${nextRect.width}px`, height: `${nextRect.height}px`, borderRadius: "14px" }
+          ]
+        : [
+            { width: `${previousRect.width}px`, height: `${previousRect.height}px`, borderRadius: "14px" },
+            { width: `${nextRect.width}px`, height: `${nextRect.height}px`, borderRadius: "12px" }
+          ],
+      { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
+    );
+    const ghostAnimation = expanded
+      ? ghost.animate(
+          [
+            { opacity: 1 },
+            { opacity: 0, offset: 0.4 },
+            { opacity: 0 }
+          ],
+          { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
+        )
+      : ghost.animate(
+          [
+            { opacity: 1 },
+            { opacity: 0, offset: 0.35 },
+            { opacity: 0 }
+          ],
+          { duration: SURFACE_TRANSITION_MS, easing, fill: "both" }
+        );
+    const transition = {
+      ghost,
+      backdrop,
+      nextSurface,
+      animations: [nextAnimation, ghostAnimation, backdropAnimation].filter(Boolean)
+    };
+    surfaceTransition = transition;
+    void Promise.all(
+      transition.animations.map((animation) => animation.finished.catch(() => undefined))
+    ).then(() => finishSurfaceTransition(transition));
+  }
+
+  function finishSurfaceTransition(transition) {
+    if (surfaceTransition !== transition) {
+      return;
+    }
+    surfaceTransition = null;
+    transition.ghost.remove();
+    transition.backdrop?.remove();
+    transition.animations.forEach((animation) => animation.cancel());
+    transition.nextSurface.classList.remove("surface-transition-target");
+    transition.nextSurface.style.removeProperty("transform-origin");
+  }
+
+  function cancelSurfaceTransition() {
+    if (!surfaceTransition) {
+      return;
+    }
+    const transition = surfaceTransition;
+    surfaceTransition = null;
+    transition.animations.forEach((animation) => animation.cancel());
+    transition.ghost.remove();
+    transition.backdrop?.remove();
+    transition.nextSurface.classList.remove("surface-transition-target");
+    transition.nextSurface.style.removeProperty("transform-origin");
   }
 
   function closeWidget() {
@@ -519,6 +650,7 @@
     clearTimeout(resizeTimer);
     clearTimeout(positionSaveTimer);
     clearTimeout(state.collapseTimer);
+    cancelSurfaceTransition();
     window.removeEventListener("pointerdown", onWindowPointerDown, true);
     window.removeEventListener("keydown", onWindowKeyDown, true);
     window.removeEventListener("resize", onWindowResize);
@@ -746,6 +878,7 @@
         letter-spacing: 0;
         user-select: none;
         -webkit-font-smoothing: antialiased;
+        position: relative;
       }
       .numeric { font-variant-numeric: tabular-nums; letter-spacing: .01em; }
       .sr-only {
@@ -783,10 +916,6 @@
         padding: 5px 6px;
         border-radius: 12px;
       }
-      .capsule.is-collapsing {
-        transform-origin: top right;
-        animation: uxv-collapse 150ms cubic-bezier(.2, .8, .2, 1) both;
-      }
       .capsule-size {
         display: inline-flex;
         align-items: center;
@@ -807,20 +936,19 @@
         border-radius: 14px;
         overflow: visible;
       }
-      .panel.is-expanding {
-        transform-origin: top right;
-        animation: uxv-expand 150ms cubic-bezier(.2, .8, .2, 1) both;
+      .surface-transition-target {
+        position: relative;
+        z-index: 2;
       }
-      :host([data-edge="left"]) .panel.is-expanding,
-      :host([data-edge="left"]) .capsule.is-collapsing { transform-origin: top left; }
-      @keyframes uxv-expand {
-        from { opacity: 0; transform: translateY(-3px) scale(.96); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
+      .surface-backdrop,
+      .surface-ghost {
+        position: absolute;
+        top: 0;
+        margin: 0;
+        pointer-events: none;
       }
-      @keyframes uxv-collapse {
-        from { opacity: 0; transform: translateY(2px) scale(1.04); }
-        to { opacity: 1; transform: translateY(0) scale(1); }
-      }
+      .surface-backdrop { z-index: 1; }
+      .surface-ghost { z-index: 3; }
       .panel-header {
         display: flex;
         align-items: center;
@@ -996,7 +1124,6 @@
       .loading-block span:last-child { width: 65%; }
       @media (prefers-reduced-motion: reduce) {
         .row-actions, .tooltip-button::after { transition: none; }
-        .panel.is-expanding, .capsule.is-collapsing { animation: none; }
       }
     `;
   }
